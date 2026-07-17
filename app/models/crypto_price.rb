@@ -1,5 +1,5 @@
 class CryptoPrice < ApplicationRecord
-  DEFAULT_CURRENCY = 'usd'
+  DEFAULT_CURRENCY = Rails.application.config.x.default_currency
 
   # Columns:
   # - symbol: normalized cryptocurrency identifier (for example, bitcoin)

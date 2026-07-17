@@ -24,7 +24,20 @@ RSpec.describe PriceRepository do
       expect(record.market_cap.to_f).to eq(1_234_567_890.5)
       expect(record.volume_24h.to_f).to eq(98_765_432.1)
       expect(record.price_change_24h.to_f).to eq(-1.25)
-      expect(record.provider_updated_at).to eq(1_700_000_000)
+      expect(record.provider_updated_at).to eq(Time.zone.at(1_700_000_000).utc)
+    end
+
+    it 'stores provider_updated_at as a datetime when a Unix timestamp is provided' do
+      described_class.upsert(
+        symbol: 'bitcoin',
+        currency: 'usd',
+        price: 65000.5,
+        provider_updated_at: 1_700_000_000
+      )
+
+      record = CryptoPrice.find_by(symbol: 'bitcoin', currency: 'usd')
+      expect(record.provider_updated_at).to be_a(Time)
+      expect(record.provider_updated_at).to eq(Time.zone.at(1_700_000_000).utc)
     end
 
     it 'updates the existing row instead of creating a duplicate' do

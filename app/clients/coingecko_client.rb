@@ -8,7 +8,7 @@ require "json"
 class CoingeckoClient
   class Error < StandardError; end
 
-  DEFAULT_CURRENCY = 'usd'
+  DEFAULT_CURRENCY = Rails.application.config.x.default_currency
   BASE_URI = URI("https://api.coingecko.com/api/v3/simple/price")
   OPEN_TIMEOUT = 3
   READ_TIMEOUT = 3
@@ -75,10 +75,20 @@ class CoingeckoClient
         market_cap: data["#{@currency}_market_cap"],
         volume_24h: data["#{@currency}_24h_vol"],
         price_change_24h: data["#{@currency}_24h_change"],
-        provider_updated_at: data["last_updated_at"]
+        provider_updated_at: normalize_provider_updated_at(data["last_updated_at"])
       }
     end
   rescue JSON::ParserError => e
     raise Error, "invalid JSON response: #{e.message}"
+  end
+
+  def normalize_provider_updated_at(value)
+    return nil if value.blank?
+    return value if value.is_a?(Time) || value.is_a?(DateTime)
+    return Time.zone.at(value.to_i).utc if value.is_a?(Numeric) || value.to_s.match?(/\A\d+\z/)
+
+    Time.zone.parse(value.to_s)
+  rescue ArgumentError
+    nil
   end
 end

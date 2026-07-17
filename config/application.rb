@@ -37,5 +37,7 @@ module CryptoPriceApi
     # Sidekiq (with sidekiq-cron scheduling FetchCryptoPricesJob every
     # minute — see config/initializers/sidekiq_cron.rb) backs ActiveJob.
     config.active_job.queue_adapter = :sidekiq
+
+    config.x.default_currency = ENV.fetch("DEFAULT_CURRENCY", "usd")
   end
 end

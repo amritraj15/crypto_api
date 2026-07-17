@@ -9,8 +9,7 @@ class FetchCryptoPricesJob < ApplicationJob
   queue_as :default
 
   def perform(symbols = nil)
-    symbols ||= CryptocurrencyProvider.supported
-    requested_items = normalize_requested_items(symbols)
+    requested_items = normalize_requested_items(symbols || CryptocurrencyProvider.supported)
     valid_items = filter_valid_items(requested_items)
     log_invalid_items(requested_items, valid_items)
     return if valid_items.empty?
@@ -18,7 +17,7 @@ class FetchCryptoPricesJob < ApplicationJob
     valid_items.group_by { |item| item[:currency] }.each do |currency, items|
       symbols_for_currency = items.map { |item| item[:symbol] }.uniq
       prices = fetch(symbols_for_currency, currency)
-      next if prices.nil? # whole batch failed for this currency
+      next if prices.nil?
 
       persist_all(prices, currency)
       log_missing_symbols(symbols_for_currency, prices.keys, currency)
@@ -35,21 +34,21 @@ class FetchCryptoPricesJob < ApplicationJob
       when Hash
         {
           symbol: entry[:symbol] || entry['symbol'],
-          currency: entry[:currency] || entry['currency'] || PriceStore::DEFAULT_CURRENCY
+          currency: entry[:currency] || entry['currency'] || default_currency
         }
       else
-        { symbol: entry.to_s, currency: PriceStore::DEFAULT_CURRENCY }
+        { symbol: entry.to_s, currency: default_currency }
       end
     end.map do |item|
-      item[:symbol] = item[:symbol].to_s.downcase
-      item[:currency] = item[:currency].to_s.downcase.presence || PriceStore::DEFAULT_CURRENCY
+      item[:symbol] = item[:symbol].to_s.downcase.presence
+      item[:currency] = item[:currency].to_s.downcase.presence || default_currency
       item
-    end
+    end.compact
   end
 
   def filter_valid_items(items)
     items.select do |item|
-      SymbolValidator.valid?(item[:symbol]) && CurrencyValidator.valid?(item[:currency])
+      item[:symbol].present? && SymbolValidator.valid?(item[:symbol])
     end
   end
 
@@ -70,7 +69,9 @@ class FetchCryptoPricesJob < ApplicationJob
       attrs = normalize_payload(payload)
       begin
         write_args = { currency: currency }
-        write_args.merge!(market_cap: attrs[:market_cap], volume_24h: attrs[:volume_24h], price_change_24h: attrs[:price_change_24h], provider_updated_at: attrs[:provider_updated_at]) if attrs.values_at(:market_cap, :volume_24h, :price_change_24h, :provider_updated_at).any? { |value| value.present? }
+        if attrs.values_at(:market_cap, :volume_24h, :price_change_24h, :provider_updated_at).any? { |value| value.present? }
+          write_args.merge!(market_cap: attrs[:market_cap], volume_24h: attrs[:volume_24h], price_change_24h: attrs[:price_change_24h], provider_updated_at: attrs[:provider_updated_at])
+        end
         PriceStore.write(symbol, attrs[:price], **write_args)
       rescue => e
         Rails.logger.error(tag("failed to persist #{symbol}=#{attrs[:price]} #{currency}: #{e.message}"))
@@ -99,8 +100,12 @@ class FetchCryptoPricesJob < ApplicationJob
   def log_invalid_items(requested_items, valid_items)
     invalid = requested_items - valid_items
     invalid.each do |item|
-      Rails.logger.warn(tag("skipping invalid symbol/currency #{item.inspect}"))
+      Rails.logger.warn(tag("skipping invalid symbol #{item.inspect}"))
     end
+  end
+
+  def default_currency
+    Rails.application.config.x.default_currency
   end
 
   def tag(message)

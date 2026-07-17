@@ -1,28 +1,25 @@
 # Crypto Price API
 
 A Rails API-only app that fetches cryptocurrency prices from CoinGecko,
-persists them, and serves them with a fast cache in front — falling back to
-the database, then to the last known DB value, when things fail upstream.
+persists them, and serves them through a Redis-backed cache with a database
+fallback.
 
 ## Requirements covered
 
-This implementation satisfies the original problem statement by:
+This implementation satisfies the assignment by:
 
-- Exposing `GET /prices/:symbol` to return the cached cryptocurrency price
-  for a given symbol and currency.
+- Exposing `GET /prices/:symbol` to return the cached price for a given symbol.
 - Running a background job every minute to fetch fresh prices and store them.
-- Continuing to serve the last known price if the external CoinGecko API is
-  unavailable or returns an error.
-- Storing currency-specific prices in the database and falling back to the
-  last known value for that currency.
-- Including unit tests for job logic, fallback behavior, and caching behavior.
+- Continuing to serve the last known price if CoinGecko is unavailable or returns an error.
+- Keeping the default currency in the database and using it for the public API response.
+- Including tests for job logic, fallback behavior, caching, and persistence.
 
 ## Installation guide
 
 ### Prerequisites
 
 - Ruby 3.2.2
-- Rails 6.1.7.10 (the Gemfile pins Rails to `~> 6.1.7`)
+- Rails 6.1.7.10
 - Redis (required for Rails cache and Sidekiq)
 - Bundler
 
@@ -55,8 +52,9 @@ bundle install
 ### Configure environment variables
 
 ```bash
-export COINGECKO_API_KEY=CG-u5ZvsvVpyous4vka8YZcQcAr
+export COINGECKO_API_KEY=your-key-here
 export REDIS_URL=redis://localhost:6379/1
+export DEFAULT_CURRENCY=usd
 ```
 
 ### Database setup
@@ -65,36 +63,23 @@ export REDIS_URL=redis://localhost:6379/1
 bundle exec rails db:create db:migrate
 ```
 
-If this is your first time running the app locally, also prepare the test
-schema before running the spec suite:
+If this is your first time running the app locally, also prepare the test schema:
 
 ```bash
 bundle exec rails db:prepare RAILS_ENV=test
 ```
 
-If you see an error such as `no such table: crypto_prices`, rerun the
-migration commands above to create the missing table.
-
 ## Project flow
 
-1. A request hits `GET /prices/:symbol?currency=usd`.
-2. The controller validates symbol and currency, then calls the price store
-   layer.
-3. The app checks the in-memory/Redis cache first, then falls back to the
-   database if the cache is empty or expired.
-4. A background job runs every minute, fetches prices from CoinGecko in bulk
-   per currency, stores them in the database, and refreshes the cache.
-5. If CoinGecko fails, the app continues serving the last stored price for
-   that symbol/currency combination.
+1. A request hits `GET /prices/:symbol`.
+2. The controller validates the symbol and calls the price store layer.
+3. The app checks the Redis cache first, then falls back to the database if needed.
+4. A background job runs every minute, fetches prices from CoinGecko in bulk, stores them in the database, and refreshes the cache.
+5. If CoinGecko fails, the app continues serving the last stored price for that symbol.
 
-## Supported cryptocurrencies and currencies
+## Supported cryptocurrencies
 
-The app is designed to support multiple cryptocurrencies and currencies at
-the same time. Prices are stored per symbol/currency pair so the same symbol
-can be tracked in different fiat currencies.
-
-The supported coin list is kept in a YAML configuration file so it can be
-changed easily without touching the job logic.
+The supported coin list is kept in a YAML configuration file so it can be changed without touching the job logic.
 
 Example configuration:
 
@@ -107,38 +92,7 @@ default:
     - solana
 ```
 
-A simple provider abstraction exposes the list to the job:
-
-```ruby
-class CryptocurrencyProvider
-  def self.supported
-    Rails.application.config_for(:cryptocurrencies).fetch("supported", [])
-  end
-end
-```
-
-### Currency defaults
-
-The public API remains `GET /prices/:symbol` and does not depend on a currency
-query parameter. The internal data model still stores currency so future
-enhancements can support multiple currencies without changing the API.
-
-If no currency is provided by internal job or storage logic, the app defaults
-to `usd`.
-
-This keeps the implementation configurable today and makes it easy to replace
-with a database-backed approach later, for example if you want an admin UI to
-add or remove cryptocurrencies without changing the public API.
-
 ## Run the application
-
-Set your CoinGecko API key as an environment variable (do **not** hardcode
-it in source or commit it):
-
-```bash
-export COINGECKO_API_KEY=your-key-here
-export REDIS_URL=redis://localhost:6379/1   # optional, this is the default
-```
 
 Start Redis, then in separate terminals:
 
@@ -147,33 +101,14 @@ bundle exec rails server              # API on http://localhost:3000
 bundle exec sidekiq                   # runs FetchCryptoPricesJob every minute
 ```
 
-The supported symbols come from the configuration file at
-`config/cryptocurrencies.yml` and the `CryptocurrencyProvider` service.
-Add or remove entries there to change which coins the job refreshes, or call
-`FetchCryptoPricesJob.perform_now(["dogecoin"])` for an ad hoc symbol.
-
-If you need a non-default currency, call the job with currency-aware items:
-
-```ruby
-FetchCryptoPricesJob.perform_now([
-  { symbol: 'bitcoin', currency: 'usd' },
-  { symbol: 'ethereum', currency: 'eur' }
-])
-```
-
-The API route remains `GET /prices/:symbol`. The controller does not require
-or parse a currency query parameter for reads; it always reads the default
-currency internally.
+The supported symbols come from the configuration file at `config/cryptocurrencies.yml`.
+Add or remove entries there to change which coins the job refreshes.
 
 ## Run the job manually from the console
-
-You can also trigger the price refresh directly without waiting for the scheduled job:
 
 ```bash
 bundle exec rails console
 ```
-
-Then run:
 
 ```ruby
 FetchCryptoPricesJob.perform_now(["bitcoin"])
@@ -185,9 +120,7 @@ You can also run it from the terminal without opening the console:
 bundle exec rails runner 'FetchCryptoPricesJob.perform_now(["bitcoin"])'
 ```
 
-## Insert data into the database and test it
-
-You can seed a price directly through the app service layer:
+## Insert data and test it
 
 ```bash
 bundle exec rails console
@@ -204,56 +137,30 @@ You can also insert a row directly with Active Record:
 CryptoPrice.create!(symbol: "bitcoin", price: 50000.0)
 ```
 
-After inserting the record, test it through the API:
+Then test it through the API:
 
 ```bash
 curl http://localhost:3000/prices/bitcoin
 ```
 
-Or verify it from the Rails console:
-
-```ruby
-PriceStore.read("bitcoin")
-```
-
 ## API example run
-
-Start Redis:
-
-```bash
-redis-server
-```
-
-Start the API and background worker in separate terminals:
-
-```bash
-bundle exec rails server
-bundle exec sidekiq
-```
 
 Example request:
 
 ```bash
-curl http://localhost:3000/prices/bitcoin?currency=eur
+curl http://localhost:3000/prices/bitcoin
 ```
 
 Expected behavior:
 
-- Before the first successful job run, the API returns:
-
-```json
-{"error":"no price cached yet for bitcoin eur"}
-```
-
+- Before the first successful job run, the API returns a not-found response.
 - After the job runs successfully, the API returns a payload similar to:
 
 ```json
-{"symbol":"bitcoin","currency":"eur","price":65123.45,"updated_at":"2026-07-17T08:11:24Z"}
+{"symbol":"bitcoin","currency":"usd","price":65123.45,"updated_at":"2026-07-17T08:11:24Z"}
 ```
 
 ## Test case run
-
-Run the test suite with:
 
 ```bash
 bundle exec rails db:test:prepare   # only needed once, or after a new migration
