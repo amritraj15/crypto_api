@@ -59,9 +59,9 @@ RSpec.describe PriceCache do
   end
 
   describe '.cache_key' do
-    it 'namespaces the key by symbol' do
-      expect(described_class.cache_key('bitcoin')).to eq('crypto_price:bitcoin')
-      expect(described_class.cache_key('BTC')).to eq('crypto_price:btc')
+    it 'namespaces the key by symbol and currency' do
+      expect(described_class.cache_key('bitcoin', 'usd')).to eq('crypto_price:bitcoin:usd')
+      expect(described_class.cache_key('BTC', 'EUR')).to eq('crypto_price:btc:eur')
     end
   end
 end

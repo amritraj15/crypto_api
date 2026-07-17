@@ -7,14 +7,22 @@ RSpec.describe PriceStore do
     it 'persists to the database and mirrors into the cache' do
       described_class.write('bitcoin', 65000.5)
 
-      expect(CryptoPrice.find_by(symbol: 'bitcoin').price.to_f).to eq(65000.5)
-      expect(PriceCache.read('bitcoin')[:price]).to eq(65000.5)
+      expect(CryptoPrice.find_by(symbol: 'bitcoin', currency: 'usd').price.to_f).to eq(65000.5)
+      expect(PriceCache.read('bitcoin', currency: 'usd')[:price]).to eq(65000.5)
+    end
+
+    it 'persists currency-specific prices separately' do
+      described_class.write('bitcoin', 65000.5, currency: 'usd')
+      described_class.write('bitcoin', 60000.0, currency: 'eur')
+
+      expect(CryptoPrice.find_by(symbol: 'bitcoin', currency: 'usd').price.to_f).to eq(65000.5)
+      expect(CryptoPrice.find_by(symbol: 'bitcoin', currency: 'eur').price.to_f).to eq(60000.0)
     end
 
     it 'includes updated_at in the cached payload' do
       described_class.write('bitcoin', 65000.5)
 
-      expect(PriceCache.read('bitcoin')[:updated_at]).to be_present
+      expect(PriceCache.read('bitcoin', currency: 'usd')[:updated_at]).to be_present
     end
   end
 
@@ -29,12 +37,12 @@ RSpec.describe PriceStore do
     context 'when the cache is cold but the DB has the price (cache miss fallback)' do
       it 'reads through to the database and repopulates the cache' do
         PriceRepository.upsert('bitcoin', 65000.5)
-        expect(PriceCache.read('bitcoin')).to be_nil # cache was never written directly
+        expect(PriceCache.read('bitcoin', currency: 'usd')).to be_nil # cache was never written directly
 
         result = described_class.read('bitcoin')
 
         expect(result[:price]).to eq(65000.5)
-        expect(PriceCache.read('bitcoin')).not_to be_nil # now repopulated
+        expect(PriceCache.read('bitcoin', currency: 'usd')).not_to be_nil # now repopulated
       end
     end
 
@@ -43,7 +51,7 @@ RSpec.describe PriceStore do
         described_class.write('bitcoin', 65000.5)
 
         travel_to(Time.current + PriceCache::EXPIRES_IN + 1.second) do
-          expect(PriceCache.read('bitcoin')).to be_nil # expired
+          expect(PriceCache.read('bitcoin', currency: 'usd')).to be_nil # expired
 
           result = described_class.read('bitcoin')
           expect(result[:price]).to eq(65000.5) # served from the DB instead

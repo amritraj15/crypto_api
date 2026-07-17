@@ -8,17 +8,19 @@ require "json"
 class CoingeckoClient
   class Error < StandardError; end
 
+  DEFAULT_CURRENCY = 'usd'
   BASE_URI = URI("https://api.coingecko.com/api/v3/simple/price")
   OPEN_TIMEOUT = 3
   READ_TIMEOUT = 3
 
-  def initialize(symbols)
+  def initialize(symbols, currency = DEFAULT_CURRENCY)
     @symbols = Array(symbols).map { |s| s.to_s.downcase }
+    @currency = currency.to_s.downcase.presence || DEFAULT_CURRENCY
   end
 
   # Returns a Hash of { "bitcoin" => 65000.5, "ethereum" => 3400.25 }.
   #
-  # Only includes symbols CoinGecko actually returned a usd price for —
+  # Only includes symbols CoinGecko actually returned a price for —
   # a symbol CoinGecko doesn't recognize is just absent from the hash, not
   # an error. Network failures, non-2xx responses, and unparsable bodies
   # raise CoingeckoClient::Error instead, since those mean the *whole*
@@ -36,7 +38,7 @@ class CoingeckoClient
 
   def perform_request
     uri = BASE_URI.dup
-    uri.query = URI.encode_www_form(ids: @symbols.join(","), vs_currencies: "usd")
+    uri.query = URI.encode_www_form(ids: @symbols.join(","), vs_currencies: @currency)
 
     Net::HTTP.start(uri.host, uri.port,
                      use_ssl: true,
@@ -54,7 +56,7 @@ class CoingeckoClient
 
   def parse(body)
     JSON.parse(body).each_with_object({}) do |(symbol, data), result|
-      price = data.is_a?(Hash) ? data["usd"] : nil
+      price = data.is_a?(Hash) ? data[@currency] : nil
       result[symbol] = price if price.is_a?(Numeric)
     end
   rescue JSON::ParserError => e

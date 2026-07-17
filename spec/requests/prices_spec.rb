@@ -4,7 +4,7 @@ RSpec.describe 'GET /prices/:symbol', type: :request do
   before { Rails.cache.clear }
 
   context 'when a price is cached' do
-    it 'returns the cached price with updated_at' do
+    it 'returns the cached price with updated_at and currency' do
       PriceStore.write('bitcoin', 65000.5)
 
       get '/prices/bitcoin'
@@ -12,8 +12,21 @@ RSpec.describe 'GET /prices/:symbol', type: :request do
       expect(response).to have_http_status(:ok)
       json = JSON.parse(response.body)
       expect(json['symbol']).to eq('bitcoin')
+      expect(json['currency']).to eq('usd')
       expect(json['price']).to eq(65000.5)
       expect(json['updated_at']).to be_present
+    end
+
+    it 'returns a currency-specific cached price when currency is provided' do
+      PriceStore.write('bitcoin', 60000.0, currency: 'eur')
+
+      get '/prices/bitcoin?currency=eur'
+
+      expect(response).to have_http_status(:ok)
+      json = JSON.parse(response.body)
+      expect(json['symbol']).to eq('bitcoin')
+      expect(json['currency']).to eq('eur')
+      expect(json['price']).to eq(60000.0)
     end
 
     it 'is case-insensitive on the symbol in the URL' do
@@ -59,7 +72,7 @@ RSpec.describe 'GET /prices/:symbol', type: :request do
       PriceStore.write('bitcoin', 65000.5)
 
       # Simulate the external API being down on the next scheduled run.
-      allow(CoingeckoClient).to receive(:new).with(['bitcoin']).and_return(
+      allow(CoingeckoClient).to receive(:new).with(['bitcoin'], 'usd').and_return(
         instance_double(CoingeckoClient, fetch_prices: {})
       )
       FetchCryptoPricesJob.perform_now(['bitcoin'])

@@ -10,14 +10,15 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_07_17_000001) do
+ActiveRecord::Schema.define(version: 2026_07_17_000002) do
 
   create_table "crypto_prices", force: :cascade do |t|
     t.string "symbol", null: false
     t.decimal "price", precision: 20, scale: 8, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
-    t.index ["symbol"], name: "index_crypto_prices_on_symbol", unique: true
+    t.string "currency", default: "usd", null: false
+    t.index ["symbol", "currency"], name: "index_crypto_prices_on_symbol_and_currency", unique: true
   end
 
 end

@@ -15,16 +15,16 @@ class PriceCache
   EXPIRES_IN = 2.minutes
 
   class << self
-    def write(symbol, payload)
-      Rails.cache.write(cache_key(symbol), payload, expires_in: EXPIRES_IN)
+    def write(symbol, payload, currency: PriceStore::DEFAULT_CURRENCY)
+      Rails.cache.write(cache_key(symbol, currency), payload, expires_in: EXPIRES_IN)
     end
 
-    def read(symbol)
-      Rails.cache.read(cache_key(symbol))
+    def read(symbol, currency: PriceStore::DEFAULT_CURRENCY)
+      Rails.cache.read(cache_key(symbol, currency))
     end
 
-    def cache_key(symbol)
-      "#{KEY_PREFIX}:#{symbol.to_s.downcase}"
+    def cache_key(symbol, currency = PriceStore::DEFAULT_CURRENCY)
+      "#{KEY_PREFIX}:#{symbol.to_s.downcase}:#{currency.to_s.downcase}"
     end
   end
 end

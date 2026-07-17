@@ -12,33 +12,36 @@
 # exist — if the caching strategy or the DB schema changes, this is the
 # only file that needs to.
 class PriceStore
+  DEFAULT_CURRENCY = 'usd'
+
   class << self
-    def write(symbol, price)
-      record = PriceRepository.upsert(symbol, price)
-      PriceCache.write(symbol, serialize(record))
+    def write(symbol, price, currency: DEFAULT_CURRENCY)
+      record = PriceRepository.upsert(symbol, price, currency)
+      PriceCache.write(symbol, serialize(record), currency: record.currency)
       record
     end
 
-    # Returns { symbol:, price:, updated_at: } or nil if there's no price
-    # for this symbol anywhere (neither cache nor DB has ever seen it).
-    def read(symbol)
-      PriceCache.read(symbol) || read_through_db(symbol)
+    # Returns { symbol:, currency:, price:, updated_at: } or nil if there's no
+    # price for this symbol/currency anywhere.
+    def read(symbol, currency: DEFAULT_CURRENCY)
+      PriceCache.read(symbol, currency: currency) || read_through_db(symbol, currency)
     end
 
     private
 
-    def read_through_db(symbol)
-      record = PriceRepository.find(symbol)
+    def read_through_db(symbol, currency)
+      record = PriceRepository.find(symbol, currency)
       return nil unless record
 
       payload = serialize(record)
-      PriceCache.write(symbol, payload)
+      PriceCache.write(symbol, payload, currency: record.currency)
       payload
     end
 
     def serialize(record)
       {
         symbol: record.symbol,
+        currency: record.currency,
         price: record.price.to_f,
         updated_at: record.updated_at.iso8601
       }

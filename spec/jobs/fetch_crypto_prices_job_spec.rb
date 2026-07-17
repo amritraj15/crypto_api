@@ -6,12 +6,12 @@ RSpec.describe FetchCryptoPricesJob, type: :job do
   describe '#perform' do
     it 'fetches all requested symbols in a single CoinGecko request' do
       client = instance_double(CoingeckoClient, fetch_prices: { 'bitcoin' => 65000.5, 'ethereum' => 3400.25 })
-      expect(CoingeckoClient).to receive(:new).with(%w[bitcoin ethereum]).once.and_return(client)
+      expect(CoingeckoClient).to receive(:new).with(%w[bitcoin ethereum], 'usd').once.and_return(client)
 
       described_class.perform_now(%w[bitcoin ethereum])
 
-      expect(PriceRepository.find('bitcoin').price.to_f).to eq(65000.5)
-      expect(PriceRepository.find('ethereum').price.to_f).to eq(3400.25)
+      expect(PriceRepository.find('bitcoin', 'usd').price.to_f).to eq(65000.5)
+      expect(PriceRepository.find('ethereum', 'usd').price.to_f).to eq(3400.25)
     end
 
     it 'defaults to the configured supported symbols when none is given' do
@@ -23,42 +23,60 @@ RSpec.describe FetchCryptoPricesJob, type: :job do
       described_class.perform_now
 
       %w[bitcoin ethereum].each do |symbol|
-        expect(PriceRepository.find(symbol).price.to_f).to eq(100.0)
+        expect(PriceRepository.find(symbol, 'usd').price.to_f).to eq(100.0)
       end
     end
 
     it 'skips symbols that fail SymbolValidator format checks before calling CoinGecko' do
-      expect(CoingeckoClient).to receive(:new).with(['bitcoin']).and_return(
+      expect(CoingeckoClient).to receive(:new).with(['bitcoin'], 'usd').and_return(
         instance_double(CoingeckoClient, fetch_prices: { 'bitcoin' => 65000.5 })
       )
 
       described_class.perform_now(['bitcoin', 'not valid!', ''])
 
-      expect(PriceRepository.find('bitcoin')).not_to be_nil
+      expect(PriceRepository.find('bitcoin', 'usd')).not_to be_nil
+    end
+
+    it 'groups symbols by currency and fetches each currency in bulk' do
+      usd_client = instance_double(CoingeckoClient, fetch_prices: { 'bitcoin' => 65000.5, 'ethereum' => 3400.25 })
+      eur_client = instance_double(CoingeckoClient, fetch_prices: { 'dogecoin' => 0.25 })
+
+      expect(CoingeckoClient).to receive(:new).with(%w[bitcoin ethereum], 'usd').and_return(usd_client)
+      expect(CoingeckoClient).to receive(:new).with(%w[dogecoin], 'eur').and_return(eur_client)
+
+      described_class.perform_now([
+        { 'symbol' => 'bitcoin', 'currency' => 'usd' },
+        { 'symbol' => 'ethereum', 'currency' => 'usd' },
+        { 'symbol' => 'dogecoin', 'currency' => 'eur' }
+      ])
+
+      expect(PriceRepository.find('bitcoin', 'usd').price.to_f).to eq(65000.5)
+      expect(PriceRepository.find('ethereum', 'usd').price.to_f).to eq(3400.25)
+      expect(PriceRepository.find('dogecoin', 'eur').price.to_f).to eq(0.25)
     end
 
     context 'fallback logic: when CoinGecko does not return a price for a symbol' do
       it 'does not overwrite the previously stored price' do
         PriceStore.write('bitcoin', 65000.5) # simulate a prior successful fetch
 
-        allow(CoingeckoClient).to receive(:new).with(['bitcoin']).and_return(
+        allow(CoingeckoClient).to receive(:new).with(['bitcoin'], 'usd').and_return(
           instance_double(CoingeckoClient, fetch_prices: {})
         )
 
         described_class.perform_now(['bitcoin'])
 
-        expect(PriceRepository.find('bitcoin').price.to_f).to eq(65000.5)
+        expect(PriceRepository.find('bitcoin', 'usd').price.to_f).to eq(65000.5)
       end
 
       it 'leaves the DB and cache empty if there was never a prior successful fetch' do
-        allow(CoingeckoClient).to receive(:new).with(['bitcoin']).and_return(
+        allow(CoingeckoClient).to receive(:new).with(['bitcoin'], 'usd').and_return(
           instance_double(CoingeckoClient, fetch_prices: {})
         )
 
         described_class.perform_now(['bitcoin'])
 
-        expect(PriceRepository.find('bitcoin')).to be_nil
-        expect(PriceCache.read('bitcoin')).to be_nil
+        expect(PriceRepository.find('bitcoin', 'usd')).to be_nil
+        expect(PriceCache.read('bitcoin', currency: 'usd')).to be_nil
       end
     end
 
@@ -71,7 +89,7 @@ RSpec.describe FetchCryptoPricesJob, type: :job do
         )
 
         expect { described_class.perform_now(['bitcoin']) }.not_to raise_error
-        expect(PriceRepository.find('bitcoin').price.to_f).to eq(65000.5)
+        expect(PriceRepository.find('bitcoin', 'usd').price.to_f).to eq(65000.5)
       end
     end
 
@@ -80,11 +98,11 @@ RSpec.describe FetchCryptoPricesJob, type: :job do
         allow(CoingeckoClient).to receive(:new).and_return(
           instance_double(CoingeckoClient, fetch_prices: { 'bitcoin' => 65000.5, 'ethereum' => 3400.25 })
         )
-        allow(PriceStore).to receive(:write).with('bitcoin', 65000.5).and_raise(StandardError, 'boom')
-        allow(PriceStore).to receive(:write).with('ethereum', 3400.25).and_call_original
+        allow(PriceStore).to receive(:write).with('bitcoin', 65000.5, currency: 'usd').and_raise(StandardError, 'boom')
+        allow(PriceStore).to receive(:write).with('ethereum', 3400.25, currency: 'usd').and_call_original
 
         expect { described_class.perform_now(%w[bitcoin ethereum]) }.not_to raise_error
-        expect(PriceRepository.find('ethereum').price.to_f).to eq(3400.25)
+        expect(PriceRepository.find('ethereum', 'usd').price.to_f).to eq(3400.25)
       end
     end
 

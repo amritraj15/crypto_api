@@ -10,51 +10,76 @@ class FetchCryptoPricesJob < ApplicationJob
 
   def perform(symbols = nil)
     symbols ||= CryptocurrencyProvider.supported
-    valid_symbols = SymbolValidator.filter(symbols)
-    log_invalid_symbols(symbols, valid_symbols)
-    return if valid_symbols.empty?
+    requested_items = normalize_requested_items(symbols)
+    valid_items = filter_valid_items(requested_items)
+    log_invalid_items(requested_items, valid_items)
+    return if valid_items.empty?
 
-    prices = fetch(valid_symbols)
-    return if prices.nil? # whole batch failed — already logged in #fetch
+    valid_items.group_by { |item| item[:currency] }.each do |currency, items|
+      symbols_for_currency = items.map { |item| item[:symbol] }.uniq
+      prices = fetch(symbols_for_currency, currency)
+      next if prices.nil? # whole batch failed for this currency
 
-    persist_all(prices)
-    log_missing_symbols(valid_symbols, prices.keys)
+      persist_all(prices, currency)
+      log_missing_symbols(symbols_for_currency, prices.keys, currency)
+    end
   rescue => e
-    # Belt-and-braces: everything above already rescues what it expects to
-    # rescue, but a job that raises silently drops off Sidekiq's radar
-    # until someone checks the dead set. Log loudly instead.
     Rails.logger.error(tag("unexpected error: #{e.class}: #{e.message}"))
   end
 
   private
 
-  # Returns the prices hash, or nil if the whole batch request failed.
-  def fetch(symbols)
-    CoingeckoClient.new(symbols).fetch_prices
+  def normalize_requested_items(symbols)
+    Array(symbols).map do |entry|
+      case entry
+      when Hash
+        {
+          symbol: entry[:symbol] || entry['symbol'],
+          currency: entry[:currency] || entry['currency'] || PriceStore::DEFAULT_CURRENCY
+        }
+      else
+        { symbol: entry.to_s, currency: PriceStore::DEFAULT_CURRENCY }
+      end
+    end.map do |item|
+      item[:symbol] = item[:symbol].to_s.downcase
+      item[:currency] = item[:currency].to_s.downcase.presence || PriceStore::DEFAULT_CURRENCY
+      item
+    end
+  end
+
+  def filter_valid_items(items)
+    items.select do |item|
+      SymbolValidator.valid?(item[:symbol]) && CurrencyValidator.valid?(item[:currency])
+    end
+  end
+
+  def fetch(symbols, currency)
+    CoingeckoClient.new(symbols, currency).fetch_prices
   rescue CoingeckoClient::Error => e
-    Rails.logger.error(tag("CoinGecko request failed for #{symbols.join(',')}: #{e.message}"))
+    Rails.logger.error(tag("CoinGecko request failed for #{symbols.join(',')} #{currency}: #{e.message}"))
     nil
   end
 
-  def persist_all(prices)
+  def persist_all(prices, currency)
     prices.each do |symbol, price|
       begin
-        PriceStore.write(symbol, price)
+        PriceStore.write(symbol, price, currency: currency)
       rescue => e
-        Rails.logger.error(tag("failed to persist #{symbol}=#{price}: #{e.message}"))
+        Rails.logger.error(tag("failed to persist #{symbol}=#{price} #{currency}: #{e.message}"))
       end
     end
   end
 
-  def log_missing_symbols(requested, returned)
+  def log_missing_symbols(requested, returned, currency)
     (requested - returned).each do |symbol|
-      Rails.logger.warn(tag("no price returned for #{symbol}; keeping last known value"))
+      Rails.logger.warn(tag("no price returned for #{symbol} #{currency}; keeping last known value"))
     end
   end
 
-  def log_invalid_symbols(requested, valid)
-    (Array(requested).map { |s| s.to_s.downcase } - valid).each do |symbol|
-      Rails.logger.warn(tag("skipping invalid symbol #{symbol.inspect}"))
+  def log_invalid_items(requested_items, valid_items)
+    invalid = requested_items - valid_items
+    invalid.each do |item|
+      Rails.logger.warn(tag("skipping invalid symbol/currency #{item.inspect}"))
     end
   end
 
