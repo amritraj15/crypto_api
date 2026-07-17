@@ -1,0 +1,23 @@
+default:
+  supported:
+    - bitcoin
+    - ethereum
+    - solana
+
+development:
+  supported:
+    - bitcoin
+    - ethereum
+    - solana
+
+test:
+  supported:
+    - bitcoin
+    - ethereum
+    - solana
+
+production:
+  supported:
+    - bitcoin
+    - ethereum
+    - solana
