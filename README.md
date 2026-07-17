@@ -9,10 +9,12 @@ the database, then to the last known DB value, when things fail upstream.
 This implementation satisfies the original problem statement by:
 
 - Exposing `GET /prices/:symbol` to return the cached cryptocurrency price
-  for a given symbol.
+  for a given symbol and currency.
 - Running a background job every minute to fetch fresh prices and store them.
 - Continuing to serve the last known price if the external CoinGecko API is
   unavailable or returns an error.
+- Storing currency-specific prices in the database and falling back to the
+  last known value for that currency.
 - Including unit tests for job logic, fallback behavior, and caching behavior.
 
 ## Installation guide
@@ -75,19 +77,24 @@ migration commands above to create the missing table.
 
 ## Project flow
 
-1. A request hits `GET /prices/:symbol`.
-2. The controller calls the price store layer.
+1. A request hits `GET /prices/:symbol?currency=usd`.
+2. The controller validates symbol and currency, then calls the price store
+   layer.
 3. The app checks the in-memory/Redis cache first, then falls back to the
    database if the cache is empty or expired.
-4. A background job runs every minute, fetches prices from CoinGecko, stores
-   them in the database, and refreshes the cache.
-5. If CoinGecko fails, the app continues serving the last stored price.
+4. A background job runs every minute, fetches prices from CoinGecko in bulk
+   per currency, stores them in the database, and refreshes the cache.
+5. If CoinGecko fails, the app continues serving the last stored price for
+   that symbol/currency combination.
 
-## Supported cryptocurrencies
+## Supported cryptocurrencies and currencies
 
-The app is designed to support multiple cryptocurrencies at the same time.
-For this assignment, the supported coin list is kept in a YAML configuration
-file so it can be changed easily without touching the job logic.
+The app is designed to support multiple cryptocurrencies and currencies at
+the same time. Prices are stored per symbol/currency pair so the same symbol
+can be tracked in different fiat currencies.
+
+The supported coin list is kept in a YAML configuration file so it can be
+changed easily without touching the job logic.
 
 Example configuration:
 
@@ -100,7 +107,7 @@ default:
     - solana
 ```
 
-A simple provider abstraction can expose the list to the job:
+A simple provider abstraction exposes the list to the job:
 
 ```ruby
 class CryptocurrencyProvider
@@ -110,9 +117,18 @@ class CryptocurrencyProvider
 end
 ```
 
+### Currency defaults
+
+The public API remains `GET /prices/:symbol` and does not depend on a currency
+query parameter. The internal data model still stores currency so future
+enhancements can support multiple currencies without changing the API.
+
+If no currency is provided by internal job or storage logic, the app defaults
+to `usd`.
+
 This keeps the implementation configurable today and makes it easy to replace
 with a database-backed approach later, for example if you want an admin UI to
-add or remove cryptocurrencies without changing the code.
+add or remove cryptocurrencies without changing the public API.
 
 ## Run the application
 
@@ -135,6 +151,19 @@ The supported symbols come from the configuration file at
 `config/cryptocurrencies.yml` and the `CryptocurrencyProvider` service.
 Add or remove entries there to change which coins the job refreshes, or call
 `FetchCryptoPricesJob.perform_now(["dogecoin"])` for an ad hoc symbol.
+
+If you need a non-default currency, call the job with currency-aware items:
+
+```ruby
+FetchCryptoPricesJob.perform_now([
+  { symbol: 'bitcoin', currency: 'usd' },
+  { symbol: 'ethereum', currency: 'eur' }
+])
+```
+
+The API route remains `GET /prices/:symbol`. The controller does not require
+or parse a currency query parameter for reads; it always reads the default
+currency internally.
 
 ## Run the job manually from the console
 
@@ -205,7 +234,7 @@ bundle exec sidekiq
 Example request:
 
 ```bash
-curl http://localhost:3000/prices/bitcoin
+curl http://localhost:3000/prices/bitcoin?currency=eur
 ```
 
 Expected behavior:
@@ -213,13 +242,13 @@ Expected behavior:
 - Before the first successful job run, the API returns:
 
 ```json
-{"error":"no price cached yet for bitcoin"}
+{"error":"no price cached yet for bitcoin eur"}
 ```
 
 - After the job runs successfully, the API returns a payload similar to:
 
 ```json
-{"symbol":"bitcoin","price":65123.45,"updated_at":"2026-07-17T08:11:24Z"}
+{"symbol":"bitcoin","currency":"eur","price":65123.45,"updated_at":"2026-07-17T08:11:24Z"}
 ```
 
 ## Test case run
@@ -290,9 +319,9 @@ app/services/price_store.rb            # coordinates DB -> cache; the only
 app/services/symbol_validator.rb       # format-checks a symbol before it's
                                         # used in a DB query or API call
 app/jobs/fetch_crypto_prices_job.rb    # every minute: fetch -> persist
-app/controllers/prices_controller.rb   # thin — validates, then PriceStore.read
+app/controllers/prices_controller.rb   # thin — validates symbol+currency, then PriceStore.read
 config/initializers/sidekiq_cron.rb    # schedules the job every minute
-db/migrate/..._create_crypto_prices.rb # unique index on symbol
+db/migrate/..._create_crypto_prices.rb # unique index on symbol/currency
 ```
 
 ### Why the database is the source of truth

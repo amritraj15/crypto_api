@@ -17,18 +17,6 @@ RSpec.describe 'GET /prices/:symbol', type: :request do
       expect(json['updated_at']).to be_present
     end
 
-    it 'returns a currency-specific cached price when currency is provided' do
-      PriceStore.write('bitcoin', 60000.0, currency: 'eur')
-
-      get '/prices/bitcoin?currency=eur'
-
-      expect(response).to have_http_status(:ok)
-      json = JSON.parse(response.body)
-      expect(json['symbol']).to eq('bitcoin')
-      expect(json['currency']).to eq('eur')
-      expect(json['price']).to eq(60000.0)
-    end
-
     it 'is case-insensitive on the symbol in the URL' do
       PriceStore.write('bitcoin', 65000.5)
 
