@@ -57,8 +57,21 @@ db/migrate/..._create_crypto_prices.rb # unique index on symbol/currency
 
 - Ruby 3.2.2
 - Rails 6.1.7.10
-- Redis (required for Rails cache and Sidekiq)
 - Bundler
+- Redis (required for Rails cache and Sidekiq)
+
+On macOS (Homebrew):
+
+```bash
+brew install redis
+```
+
+Verify the installation:
+
+```bash
+redis-server --version
+redis-cli --version
+```
 
 ### Install Ruby and Rails
 
@@ -78,12 +91,40 @@ rvm use 3.2.2
 gem install bundler
 ```
 
+### Start Redis
+
+Start Redis as a background service:
+
+```bash
+brew services start redis
+```
+
+Or run it manually in a terminal:
+
+```bash
+redis-server
+```
+
+Verify Redis is running:
+
+```bash
+redis-cli ping
+```
+
+Expected output:
+
+```text
+PONG
+```
+
 ### Clone the repository
 
 ```bash
 git clone <repository-url>
 cd crypto_price_api
 bundle install
+bundle exec rails db:create
+bundle exec rails db:migrate
 ```
 
 ### Configure environment variables
@@ -131,15 +172,62 @@ default:
 
 ## Run the application
 
-Start Redis, then in separate terminals:
+Open three terminals:
+
+Terminal 1
 
 ```bash
-bundle exec rails server              # API on http://localhost:3000
-bundle exec sidekiq                   # runs FetchCryptoPricesJob every minute
+redis-server
+```
+
+(or use `brew services start redis`)
+
+Terminal 2
+
+```bash
+bundle exec rails server
+```
+
+Terminal 3
+
+```bash
+bundle exec sidekiq
 ```
 
 The supported symbols come from the configuration file at `config/cryptocurrencies.yml`.
 Add or remove entries there to change which coins the job refreshes.
+
+## Verify the setup
+
+Confirm Redis:
+
+```bash
+redis-cli ping
+```
+
+Expected:
+
+```text
+PONG
+```
+
+Confirm Sidekiq is connected:
+
+```bash
+bundle exec sidekiq
+```
+
+You should see Sidekiq start without Redis connection errors.
+
+Confirm Rails:
+
+```bash
+curl http://localhost:3000/prices/bitcoin
+```
+
+Before the first job run you should receive a "not found" response.
+
+After running the job, the endpoint should return the latest cached price.
 
 ## Run the job manually from the console
 
@@ -335,3 +423,14 @@ exception doesn't just vanish from Sidekiq's normal job flow.
   the `REDIS_URL` environment variable.
 - If you want to inspect job behaviour in detail, run the console command above
   and check the Rails logs for any exception messages.
+- If `bundle exec sidekiq` fails with `Redis::CannotConnectError`, verify Redis is installed and running:
+
+```bash
+redis-cli ping
+```
+
+If Redis is not running:
+
+```bash
+brew services start redis
+```
