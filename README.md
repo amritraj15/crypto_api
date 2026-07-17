@@ -32,6 +32,44 @@ Redis / Rails.cache         <- fast path, bounded TTL
 Controller (GET /prices/:symbol)
 ```
 
+Write Path
+```
+Sidekiq Scheduler
+        │
+        ▼
+FetchCryptoPricesJob
+        │
+        ▼
+CoingeckoClient
+        │
+        ▼
+PriceRepository
+        │
+   Database
+        │
+        ▼
+ PriceCache
+
+```
+
+Read path
+
+```
+GET /prices/:symbol
+        │
+        ▼
+PricesController
+        │
+        ▼
+PriceStore
+   │           │
+   ▼           ▼
+Cache      Database
+               │
+               ▼
+        Refresh Cache
+```
+
 ```
 app/clients/coingecko_client.rb        # CoinGecko API call only. Batches all
                                         # requested symbols into one request.
@@ -46,10 +84,11 @@ app/services/price_store.rb            # coordinates DB -> cache; the only
 app/services/symbol_validator.rb       # format-checks a symbol before it's
                                         # used in a DB query or API call
 app/jobs/fetch_crypto_prices_job.rb    # every minute: fetch -> persist
-app/controllers/prices_controller.rb   # thin — validates symbol+currency, then PriceStore.read
+app/controllers/prices_controller.rb   # validates the requested symbol and delegates to PriceStore
 config/initializers/sidekiq_cron.rb    # schedules the job every minute
 db/migrate/..._create_crypto_prices.rb # unique index on symbol/currency
 ```
+Redis entries expire after 2 minutes, while the refresh job runs every minute.
 
 ## Installation guide
 
