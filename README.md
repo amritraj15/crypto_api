@@ -14,6 +14,43 @@ This implementation satisfies the assignment by:
 - Keeping the default currency in the database and using it for the public API response.
 - Including tests for job logic, fallback behavior, caching, and persistence.
 
+## Architecture
+
+```
+CoinGecko
+   |
+   v
+CoingeckoClient        (app/clients/coingecko_client.rb — ONLY file that knows the CoinGecko API shape)
+   |
+   v
+Database (crypto_prices)   <- source of truth, survives restarts
+   |
+   v
+Redis / Rails.cache         <- fast path, bounded TTL
+   |
+   v
+Controller (GET /prices/:symbol)
+```
+
+```
+app/clients/coingecko_client.rb        # CoinGecko API call only. Batches all
+                                        # requested symbols into one request.
+                                        # If the provider or response shape
+                                        # changes, this is the only file that
+                                        # needs to.
+app/models/crypto_price.rb             # AR model — the source of truth
+app/services/price_repository.rb       # all DB reads/writes go through here
+app/services/price_cache.rb            # Rails.cache wrapper, bounded TTL
+app/services/price_store.rb            # coordinates DB -> cache; the only
+                                        # thing the job/controller talk to
+app/services/symbol_validator.rb       # format-checks a symbol before it's
+                                        # used in a DB query or API call
+app/jobs/fetch_crypto_prices_job.rb    # every minute: fetch -> persist
+app/controllers/prices_controller.rb   # thin — validates symbol+currency, then PriceStore.read
+config/initializers/sidekiq_cron.rb    # schedules the job every minute
+db/migrate/..._create_crypto_prices.rb # unique index on symbol/currency
+```
+
 ## Installation guide
 
 ### Prerequisites
@@ -222,43 +259,6 @@ The test suite covers:
 - Job logic
 - Fallback behavior when the external API fails
 - Caching behavior and persistence flow
-
-## Architecture
-
-```
-CoinGecko
-   |
-   v
-CoingeckoClient        (app/clients/coingecko_client.rb — ONLY file that knows the CoinGecko API shape)
-   |
-   v
-Database (crypto_prices)   <- source of truth, survives restarts
-   |
-   v
-Redis / Rails.cache         <- fast path, bounded TTL
-   |
-   v
-Controller (GET /prices/:symbol)
-```
-
-```
-app/clients/coingecko_client.rb        # CoinGecko API call only. Batches all
-                                        # requested symbols into one request.
-                                        # If the provider or response shape
-                                        # changes, this is the only file that
-                                        # needs to.
-app/models/crypto_price.rb             # AR model — the source of truth
-app/services/price_repository.rb       # all DB reads/writes go through here
-app/services/price_cache.rb            # Rails.cache wrapper, bounded TTL
-app/services/price_store.rb            # coordinates DB -> cache; the only
-                                        # thing the job/controller talk to
-app/services/symbol_validator.rb       # format-checks a symbol before it's
-                                        # used in a DB query or API call
-app/jobs/fetch_crypto_prices_job.rb    # every minute: fetch -> persist
-app/controllers/prices_controller.rb   # thin — validates symbol+currency, then PriceStore.read
-config/initializers/sidekiq_cron.rb    # schedules the job every minute
-db/migrate/..._create_crypto_prices.rb # unique index on symbol/currency
-```
 
 ### Why the database is the source of truth
 
