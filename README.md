@@ -353,39 +353,65 @@ Expected behavior:
 {"symbol":"bitcoin","currency":"usd","price":65123.45,"updated_at":"2026-07-17T08:11:24Z"}
 ```
 
-## Test case run
+## Running the Test Suite
+
+Prepare the test database (only required once or after adding new migrations):
 
 ```bash
-bundle exec rails db:test:prepare   # only needed once, or after a new migration
+bundle exec rails db:test:prepare
+```
+
+Run the complete test suite:
+
+```bash
 bundle exec rspec
 ```
 
-53 examples across:
-- `spec/clients/coingecko_client_spec.rb` — batching, timeouts, non-2xx,
-  malformed JSON, partial/missing symbols
-- `spec/models/crypto_price_spec.rb` — validations, uniqueness, symbol
-  normalization
-- `spec/services/price_repository_spec.rb` — upsert semantics, including a
-  concurrent-writer race test
-- `spec/services/price_cache_spec.rb` — round-trip, overwrite, TTL expiry
-- `spec/services/price_store_spec.rb` — the DB -> cache -> read pipeline,
-  including the cache-miss-falls-back-to-DB path
-- `spec/jobs/fetch_crypto_prices_job_spec.rb` — batching, symbol
-  validation, fallback-on-missing-price, fallback-on-batch-failure,
-  one-symbol-failure-doesn't-block-others
-- `spec/requests/prices_spec.rb` — end-to-end, including invalid-symbol 422
+### Test Coverage
 
-WebMock stubs the CoinGecko HTTP call, so the suite never hits the real
-network. `config.active_job.queue_adapter = :test` in
-`config/environments/test.rb` runs jobs synchronously — no real
-Sidekiq/Redis process is required to run the suite, though a real SQLite
-test database is used (`db:test:prepare` sets it up from the migrations).
+The test suite contains **61 examples** covering the application's critical functionality:
 
-The test suite covers:
+- **spec/clients/coingecko_client_spec.rb**
+  - Batched price fetching
+  - API timeout handling
+  - Non-2xx HTTP responses
+  - Malformed JSON responses
+  - Partial and missing symbol handling
 
-- Job logic
-- Fallback behavior when the external API fails
-- Caching behavior and persistence flow
+- **spec/models/crypto_price_spec.rb**
+  - Model validations
+  - Symbol uniqueness
+  - Symbol normalization
+
+- **spec/services/price_repository_spec.rb**
+  - Upsert semantics
+  - Concurrent writer race condition handling
+
+- **spec/services/price_cache_spec.rb**
+  - Cache read/write round-trip
+  - Cache overwrite behavior
+  - TTL expiration
+
+- **spec/services/price_store_spec.rb**
+  - Database → Cache → Read pipeline
+  - Cache miss fallback to the database
+  - Cache refresh after persistence
+
+- **spec/jobs/fetch_crypto_prices_job_spec.rb**
+  - Batched price refresh
+  - Symbol validation
+  - Missing price fallback
+  - Batch failure fallback
+  - Partial batch failure isolation (one failing symbol does not block others)
+
+- **spec/requests/prices_spec.rb**
+  - End-to-end API request flow
+  - Cached price retrieval
+  - Database fallback on cache miss
+  - Invalid symbol returns **422 Unprocessable Entity**
+  - Consistent JSON response structure
+
+The test suite validates the core business requirements, including caching behavior, persistence, background job execution, API integration, graceful degradation when the external provider is unavailable, and end-to-end request handling.
 
 ### Why the database is the source of truth
 
