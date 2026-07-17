@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_07_17_000002) do
+ActiveRecord::Schema.define(version: 2026_07_17_000003) do
 
   create_table "crypto_prices", force: :cascade do |t|
     t.string "symbol", null: false
@@ -18,6 +18,10 @@ ActiveRecord::Schema.define(version: 2026_07_17_000002) do
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.string "currency", default: "usd", null: false
+    t.decimal "market_cap", precision: 20, scale: 8
+    t.decimal "volume_24h", precision: 20, scale: 8
+    t.decimal "price_change_24h", precision: 20, scale: 8
+    t.integer "provider_updated_at"
     t.index ["symbol", "currency"], name: "index_crypto_prices_on_symbol_and_currency", unique: true
   end
 

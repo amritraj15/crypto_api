@@ -15,8 +15,16 @@ class PriceStore
   DEFAULT_CURRENCY = 'usd'
 
   class << self
-    def write(symbol, price, currency: DEFAULT_CURRENCY)
-      record = PriceRepository.upsert(symbol, price, currency)
+    def write(symbol, price, currency: DEFAULT_CURRENCY, market_cap: nil, volume_24h: nil, price_change_24h: nil, provider_updated_at: nil)
+      record = PriceRepository.upsert(
+        symbol,
+        price,
+        currency: currency,
+        market_cap: market_cap,
+        volume_24h: volume_24h,
+        price_change_24h: price_change_24h,
+        provider_updated_at: provider_updated_at
+      )
       PriceCache.write(symbol, serialize(record), currency: record.currency)
       record
     end
@@ -43,6 +51,9 @@ class PriceStore
         symbol: record.symbol,
         currency: record.currency,
         price: record.price.to_f,
+        market_cap: record.market_cap&.to_f,
+        volume_24h: record.volume_24h&.to_f,
+        price_change_24h: record.price_change_24h&.to_f,
         updated_at: record.updated_at.iso8601
       }
     end

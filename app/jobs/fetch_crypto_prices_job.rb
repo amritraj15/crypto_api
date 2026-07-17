@@ -54,20 +54,40 @@ class FetchCryptoPricesJob < ApplicationJob
   end
 
   def fetch(symbols, currency)
-    CoingeckoClient.new(symbols, currency).fetch_prices
+    client = CoingeckoClient.new(symbols, currency)
+    if client.respond_to?(:fetch_price_payloads)
+      client.fetch_price_payloads
+    else
+      client.fetch_prices
+    end
   rescue CoingeckoClient::Error => e
     Rails.logger.error(tag("CoinGecko request failed for #{symbols.join(',')} #{currency}: #{e.message}"))
     nil
   end
 
   def persist_all(prices, currency)
-    prices.each do |symbol, price|
+    prices.each do |symbol, payload|
+      attrs = normalize_payload(payload)
       begin
-        PriceStore.write(symbol, price, currency: currency)
+        write_args = { currency: currency }
+        write_args.merge!(market_cap: attrs[:market_cap], volume_24h: attrs[:volume_24h], price_change_24h: attrs[:price_change_24h], provider_updated_at: attrs[:provider_updated_at]) if attrs.values_at(:market_cap, :volume_24h, :price_change_24h, :provider_updated_at).any? { |value| value.present? }
+        PriceStore.write(symbol, attrs[:price], **write_args)
       rescue => e
-        Rails.logger.error(tag("failed to persist #{symbol}=#{price} #{currency}: #{e.message}"))
+        Rails.logger.error(tag("failed to persist #{symbol}=#{attrs[:price]} #{currency}: #{e.message}"))
       end
     end
+  end
+
+  def normalize_payload(payload)
+    return { price: payload } unless payload.is_a?(Hash)
+
+    {
+      price: payload[:price] || payload['price'],
+      market_cap: payload[:market_cap] || payload['market_cap'],
+      volume_24h: payload[:volume_24h] || payload['volume_24h'],
+      price_change_24h: payload[:price_change_24h] || payload['price_change_24h'],
+      provider_updated_at: payload[:provider_updated_at] || payload['provider_updated_at']
+    }
   end
 
   def log_missing_symbols(requested, returned, currency)

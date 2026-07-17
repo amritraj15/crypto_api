@@ -9,6 +9,24 @@ RSpec.describe PriceRepository do
       expect(record.price.to_f).to eq(65000.5)
     end
 
+    it 'persists additional market and provider fields when provided' do
+      described_class.upsert(
+        symbol: 'bitcoin',
+        currency: 'usd',
+        price: 65000.5,
+        market_cap: 1_234_567_890.5,
+        volume_24h: 98_765_432.1,
+        price_change_24h: -1.25,
+        provider_updated_at: 1_700_000_000
+      )
+
+      record = CryptoPrice.find_by(symbol: 'bitcoin', currency: 'usd')
+      expect(record.market_cap.to_f).to eq(1_234_567_890.5)
+      expect(record.volume_24h.to_f).to eq(98_765_432.1)
+      expect(record.price_change_24h.to_f).to eq(-1.25)
+      expect(record.provider_updated_at).to eq(1_700_000_000)
+    end
+
     it 'updates the existing row instead of creating a duplicate' do
       described_class.upsert('bitcoin', 65000.5)
       described_class.upsert('bitcoin', 66000.0)

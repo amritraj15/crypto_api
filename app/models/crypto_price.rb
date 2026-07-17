@@ -1,6 +1,16 @@
 class CryptoPrice < ApplicationRecord
   DEFAULT_CURRENCY = 'usd'
 
+  # Columns:
+  # - symbol: normalized cryptocurrency identifier (for example, bitcoin)
+  # - currency: quote currency for the price (for example, usd)
+  # - price: latest price value returned by the provider
+  # - market_cap: provider-reported market capitalization
+  # - volume_24h: provider-reported 24h trading volume
+  # - price_change_24h: provider-reported 24h price change
+  # - provider_updated_at: provider timestamp for the latest data point
+  # - created_at/updated_at: Rails timestamps
+  #
   # The unique index on [:symbol, :currency] is the source of truth for
   # concurrent writes; the validation here is just a fast-fail for normal
   # ActiveRecord create/save.

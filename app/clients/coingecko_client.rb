@@ -26,6 +26,10 @@ class CoingeckoClient
   # raise CoingeckoClient::Error instead, since those mean the *whole*
   # batch is untrustworthy, not just one symbol.
   def fetch_prices
+    fetch_price_payloads.transform_values { |payload| payload[:price] }
+  end
+
+  def fetch_price_payloads
     return {} if @symbols.empty?
 
     response = perform_request
@@ -38,7 +42,14 @@ class CoingeckoClient
 
   def perform_request
     uri = BASE_URI.dup
-    uri.query = URI.encode_www_form(ids: @symbols.join(","), vs_currencies: @currency)
+    uri.query = URI.encode_www_form(
+      ids: @symbols.join(","),
+      vs_currencies: @currency,
+      include_market_cap: true,
+      include_24hr_vol: true,
+      include_24hr_change: true,
+      include_last_updated_at: true
+    )
 
     Net::HTTP.start(uri.host, uri.port,
                      use_ssl: true,
@@ -57,7 +68,15 @@ class CoingeckoClient
   def parse(body)
     JSON.parse(body).each_with_object({}) do |(symbol, data), result|
       price = data.is_a?(Hash) ? data[@currency] : nil
-      result[symbol] = price if price.is_a?(Numeric)
+      next unless price.is_a?(Numeric)
+
+      result[symbol] = {
+        price: price,
+        market_cap: data["#{@currency}_market_cap"],
+        volume_24h: data["#{@currency}_24h_vol"],
+        price_change_24h: data["#{@currency}_24h_change"],
+        provider_updated_at: data["last_updated_at"]
+      }
     end
   rescue JSON::ParserError => e
     raise Error, "invalid JSON response: #{e.message}"

@@ -46,6 +46,28 @@ RSpec.describe 'GET /prices/:symbol', type: :request do
     end
   end
 
+  context 'when market metrics are stored for the symbol' do
+    it 'returns them in the JSON payload' do
+      PriceRepository.upsert(
+        symbol: 'bitcoin',
+        currency: 'usd',
+        price: 65000.5,
+        market_cap: 1_234_567_890.5,
+        volume_24h: 98_765_432.1,
+        price_change_24h: -1.25,
+        provider_updated_at: 1_700_000_000
+      )
+
+      get '/prices/bitcoin'
+
+      expect(response).to have_http_status(:ok)
+      json = JSON.parse(response.body)
+      expect(json['market_cap']).to eq(1_234_567_890.5)
+      expect(json['volume_24h']).to eq(98_765_432.1)
+      expect(json['price_change_24h']).to eq(-1.25)
+    end
+  end
+
   context 'when the symbol format is invalid' do
     it 'returns 422 without touching the cache or database' do
       get '/prices/not%20valid!'
