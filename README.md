@@ -127,20 +127,49 @@ bundle exec rails console
 ```
 
 ```ruby
-PriceStore.write("bitcoin", 50000.0)
+PriceStore.write(
+  "bitcoin",
+  50000.0,
+  market_cap: 1_234_567_890.5,
+  volume_24h: 98_765_432.1,
+  price_change_24h: -1.25,
+  provider_updated_at: Time.zone.now
+)
+
 PriceStore.read("bitcoin")
 ```
 
 You can also insert a row directly with Active Record:
 
 ```ruby
-CryptoPrice.create!(symbol: "bitcoin", price: 50000.0)
+CryptoPrice.create!(
+  symbol: "bitcoin",
+  price: 50000.0,
+  market_cap: 1_234_567_890.5,
+  volume_24h: 98_765_432.1,
+  price_change_24h: -1.25,
+  provider_updated_at: Time.zone.now
+)
 ```
 
 Then test it through the API:
 
 ```bash
 curl http://localhost:3000/prices/bitcoin
+```
+
+The response will include the additional fields when they are present:
+
+```json
+{
+  "symbol": "bitcoin",
+  "currency": "usd",
+  "price": 50000.0,
+  "market_cap": 1234567890.5,
+  "volume_24h": 98765432.1,
+  "price_change_24h": -1.25,
+  "updated_at": "2026-07-17T08:11:24Z"
+}
 ```
 
 ## API example run
@@ -304,5 +333,5 @@ exception doesn't just vanish from Sidekiq's normal job flow.
   letters, numbers, or hyphens (for example, `bitcoin` or `dogecoin`).
 - If the app cannot connect to Redis, start it with `redis-server` and verify
   the `REDIS_URL` environment variable.
-- If you want to inspect job behavior in detail, run the console command above
+- If you want to inspect job behaviour in detail, run the console command above
   and check the Rails logs for any exception messages.
